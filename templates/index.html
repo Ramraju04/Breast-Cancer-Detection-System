@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Breast Cancer Diagnosis System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* ── Grad-CAM reveal button ─────────────────────────────────────── */
+        #showGradcamBtn {
+            display: none;               /* hidden until analysis completes  */
+            margin: 1.5rem auto 0;
+            max-width: 260px;
+            padding: 0.85rem 1.6rem;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+        #showGradcamBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 87, 108, 0.45);
+        }
+        /* Grad-CAM card hidden until button click */
+        #gradcamCard {
+            display: none;
+        }
+        /* When Grad-CAM is revealed, show both cards side-by-side */
+        .results-grid.gradcam-visible {
+            grid-template-columns: 1fr 1fr;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <h2>🎗️ Breast Cancer Diagnosis</h2>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#home" class="nav-link active">Home</a></li>
+                <li><a href="#upload" class="nav-link">Upload Image</a></li>
+                <li><a href="#explanation" class="nav-link">Explanation</a></li>
+                <li><a href="#chatbot" class="nav-link">Chatbot</a></li>
+                <li><a href="#about" class="nav-link">About</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Home Section -->
+    <section id="home" class="section home-section">
+        <div class="container">
+            <div class="hero-content">
+                <h1>AI-Powered Breast Cancer Diagnosis</h1>
+                <p class="hero-subtitle">Advanced explainable AI system for histopathology image analysis</p>
+                <div class="disclaimer-box">
+                    <p><strong>⚠️ Medical Disclaimer:</strong> This system is for assistance only. Always consult a certified oncologist for proper diagnosis and treatment.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Upload Section -->
+    <section id="upload" class="section">
+        <div class="container">
+            <h2 class="section-title">Upload Histopathology Image</h2>
+            
+            <div class="upload-container">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="upload-box">
+                        <input type="file" id="imageInput" accept="image/*" required>
+                        <label for="imageInput" class="upload-label">
+                            <span class="upload-icon">📁</span>
+                            <span class="upload-text">Click to select image or drag and drop</span>
+                        </label>
+                    </div>
+                    <div id="imagePreview" class="image-preview" style="display: none;">
+                        <img id="previewImg" src="" alt="Preview">
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="analyzeBtn">
+                        <span class="btn-text">Analyze Image</span>
+                        <span class="btn-loader" style="display: none;">Analyzing...</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results" class="results-container" style="display: none;">
+                <h3 class="results-title">Analysis Results</h3>
+                
+                <!-- Image grid: starts with 1 column; becomes 2 when Grad-CAM is shown -->
+                <div class="results-grid" id="resultsGrid">
+                    <!-- Original Image (always visible after analysis) -->
+                    <div class="result-card">
+                        <h4>Original Image</h4>
+                        <img id="originalImage" src="" alt="Original">
+                    </div>
+
+                    <!-- Grad-CAM card: hidden initially, revealed on button click -->
+                    <div class="result-card" id="gradcamCard">
+                        <h4>Grad-CAM Heatmap</h4>
+                        <img id="gradcamImage" src="" alt="Grad-CAM Heatmap">
+                        <p class="card-note">🔴 Red/yellow areas show regions the model focused on most</p>
+                    </div>
+                </div>
+
+                <!-- Show Grad-CAM button (centred below the image grid) -->
+                <div style="text-align:center;">
+                    <button id="showGradcamBtn" title="Reveal Grad-CAM heatmap">
+                        🔬 Show Grad-CAM
+                    </button>
+                </div>
+
+                <!-- Prediction Results -->
+                <div class="prediction-box">
+                    <div class="prediction-label">
+                        <span class="label-title">Prediction:</span>
+                        <span id="predictionText" class="prediction-value"></span>
+                    </div>
+                    <div class="confidence-label">
+                        <span class="label-title">Confidence:</span>
+                        <span id="confidenceText" class="confidence-value"></span>
+                    </div>
+                    <div class="confidence-bar">
+                        <div id="confidenceProgress" class="confidence-progress"></div>
+                    </div>
+                </div>
+
+                <!-- Drug Recommendations (for Malignant cases) -->
+                <div id="drugRecommendations" class="drug-container" style="display: none;">
+                    <h4>Treatment Categories (Informational Only)</h4>
+                    <div class="drug-grid" id="drugGrid"></div>
+                </div>
+
+                <!-- Disclaimer -->
+                <div class="disclaimer-box">
+                    <p id="disclaimerText"></p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Explanation Section -->
+    <section id="explanation" class="section explanation-section">
+        <div class="container">
+            <h2 class="section-title">Model Explanation</h2>
+            
+            <div id="explanationContent" class="explanation-content">
+                <p class="explanation-placeholder">Upload and analyze an image to see the detailed explanation of the model's decision-making process.</p>
+            </div>
+
+            <div class="explanation-info">
+                <h3>How Grad-CAM Works</h3>
+                <p>Gradient-weighted Class Activation Mapping (Grad-CAM) highlights the regions in the image that the model considers most important for its prediction. Warmer colors (red/yellow) indicate areas of high importance, while cooler colors (blue/green) show less relevant regions.</p>
+                
+                <div class="info-grid">
+                    <div class="info-card">
+                        <h4>🔴 Red Zones</h4>
+                        <p>High importance - Model focused heavily on these areas</p>
+                    </div>
+                    <div class="info-card">
+                        <h4>🟡 Yellow Zones</h4>
+                        <p>Medium importance - Supporting evidence for decision</p>
+                    </div>
+                    <div class="info-card">
+                        <h4>🔵 Blue Zones</h4>
+                        <p>Low importance - Background or less relevant areas</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Chatbot Section -->
+    <section id="chatbot" class="section">
+        <div class="container">
+            <h2 class="section-title">Medical Chatbot Assistant</h2>
+            <p class="section-subtitle">Ask questions about breast cancer, diagnosis, and treatment</p>
+            
+            <div class="chatbot-container">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message bot-message">
+                        <p>Hello! I'm here to answer your questions about breast cancer. How can I help you today?</p>
+                    </div>
+                </div>
+                
+                <form id="chatForm" class="chat-input-form">
+                    <input type="text" id="chatInput" placeholder="Ask about breast cancer..." required>
+                    <button type="submit" class="btn btn-chat">Send</button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="section about-section">
+        <div class="container">
+            <h2 class="section-title">About This System</h2>
+            
+            <div class="about-content">
+                <div class="about-card">
+                    <h3>🎯 Purpose</h3>
+                    <p>This system uses deep learning to analyze histopathology images and provide explainable predictions for breast cancer diagnosis. It's designed to assist medical professionals in their diagnostic process.</p>
+                </div>
+
+                <div class="about-card">
+                    <h3>🧠 Technology</h3>
+                    <p>Built with convolutional neural networks (CNN) and Grad-CAM visualization for interpretable AI. The model has been trained on histopathology images to distinguish between benign and malignant tissue.</p>
+                </div>
+
+                <div class="about-card">
+                    <h3>📋 Features</h3>
+                    <ul>
+                        <li>AI-powered image classification</li>
+                        <li>Grad-CAM explainability heatmaps</li>
+                        <li>Confidence scoring</li>
+                        <li>Treatment category recommendations</li>
+                        <li>Breast cancer information chatbot</li>
+                    </ul>
+                </div>
+
+                <div class="about-card">
+                    <h3>⚠️ Important Notice</h3>
+                    <p><strong>This system is not a replacement for professional medical diagnosis.</strong> All results should be reviewed by qualified oncologists. Use this tool as a supplementary aid in the diagnostic workflow.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Breast Cancer Diagnosis System. For educational and assistance purposes only.</p>
+            <p>Always consult certified medical professionals for diagnosis and treatment.</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        // Smooth scrolling for navigation
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                const targetId = this.getAttribute('href');
+                const targetSection = document.querySelector(targetId);
+                
+                // Update active link
+                document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Smooth scroll
+                targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        });
+
+        // Image preview
+        const imageInput  = document.getElementById('imageInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const previewImg  = document.getElementById('previewImg');
+
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    imagePreview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // ── Form submission ───────────────────────────────────────────────────
+        const uploadForm = document.getElementById('uploadForm');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resultsDiv = document.getElementById('results');
+
+        // Stores the Grad-CAM path returned by the backend.
+        // The image src is only set when the user clicks "Show Grad-CAM".
+        let _pendingGradcamPath = '';
+
+        uploadForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData  = new FormData();
+            const imageFile = imageInput.files[0];
+            
+            if (!imageFile) {
+                alert('Please select an image first');
+                return;
+            }
+            
+            formData.append('image', imageFile);
+            
+            // Loading state
+            analyzeBtn.querySelector('.btn-text').style.display   = 'none';
+            analyzeBtn.querySelector('.btn-loader').style.display = 'inline';
+            analyzeBtn.disabled = true;
+
+            // Reset Grad-CAM state from any previous run
+            _pendingGradcamPath = '';
+            document.getElementById('gradcamCard').style.display = 'none';
+            document.getElementById('gradcamImage').src          = '';
+            document.getElementById('showGradcamBtn').style.display = 'none';
+            document.getElementById('resultsGrid').classList.remove('gradcam-visible');
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResults(data);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error analyzing image: ' + error.message);
+            } finally {
+                // Reset button
+                analyzeBtn.querySelector('.btn-text').style.display   = 'inline';
+                analyzeBtn.querySelector('.btn-loader').style.display = 'none';
+                analyzeBtn.disabled = false;
+            }
+        });
+
+        // ── Display results ───────────────────────────────────────────────────
+        function displayResults(data) {
+            resultsDiv.style.display = 'block';
+
+            // Show ONLY the original image
+            document.getElementById('originalImage').src = data.image_path;
+
+            // Store the Grad-CAM path but do NOT set the image src yet
+            _pendingGradcamPath = data.gradcam_path;
+
+            // Reveal the "Show Grad-CAM" button so the user can request it
+            document.getElementById('showGradcamBtn').style.display = 'inline-block';
+            
+            // Prediction
+            const predictionText   = document.getElementById('predictionText');
+            predictionText.textContent = data.prediction;
+            predictionText.className   = 'prediction-value ' +
+                (data.prediction === 'Malignant' ? 'malignant' : 'benign');
+            
+            // Confidence
+            document.getElementById('confidenceText').textContent        = data.confidence + '%';
+            document.getElementById('confidenceProgress').style.width    = data.confidence + '%';
+            
+            // Explanation
+            document.getElementById('explanationContent').innerHTML = `
+                <div class="explanation-text">
+                    <h3>Analysis Explanation</h3>
+                    <p>${data.explanation}</p>
+                </div>
+            `;
+            
+            // Drug recommendations (malignant only)
+            const drugContainer = document.getElementById('drugRecommendations');
+            if (data.drug_recommendations) {
+                drugContainer.style.display = 'block';
+                const drugGrid = document.getElementById('drugGrid');
+                drugGrid.innerHTML = '';
+                for (const [drug, description] of Object.entries(data.drug_recommendations)) {
+                    const drugCard = document.createElement('div');
+                    drugCard.className = 'drug-card';
+                    drugCard.innerHTML = `<h5>${drug}</h5><p>${description}</p>`;
+                    drugGrid.appendChild(drugCard);
+                }
+            } else {
+                drugContainer.style.display = 'none';
+            }
+            
+            // Disclaimer
+            document.getElementById('disclaimerText').textContent = data.disclaimer;
+            
+            // Scroll to results
+            resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // ── Show Grad-CAM button ──────────────────────────────────────────────
+        document.getElementById('showGradcamBtn').addEventListener('click', function() {
+            if (!_pendingGradcamPath) return;
+
+            // Set image src (loads the heatmap from server)
+            document.getElementById('gradcamImage').src = _pendingGradcamPath;
+
+            // Reveal the Grad-CAM card
+            document.getElementById('gradcamCard').style.display = 'block';
+
+            // Make both image cards appear side-by-side
+            document.getElementById('resultsGrid').classList.add('gradcam-visible');
+
+            // Hide button after click to avoid repeated clicks
+            this.style.display = 'none';
+        });
+
+        // ── Chatbot ───────────────────────────────────────────────────────────
+        const chatForm     = document.getElementById('chatForm');
+        const chatInput    = document.getElementById('chatInput');
+        const chatMessages = document.getElementById('chatMessages');
+
+        chatForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const message = chatInput.value.trim();
+            if (!message) return;
+            
+            addMessage(message, 'user');
+            chatInput.value = '';
+            
+            try {
+                const response = await fetch('/chatbot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+                
+                const data = await response.json();
+                addMessage(data.response, 'bot');
+            } catch (error) {
+                addMessage('Sorry, I encountered an error. Please try again.', 'bot');
+            }
+        });
+
+        function addMessage(text, sender) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}-message`;
+            messageDiv.innerHTML = `<p>${text}</p>`;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+    </script>
+</body>
+</html>

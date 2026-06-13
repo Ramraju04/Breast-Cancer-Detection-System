@@ -1,0 +1,12 @@
+.env
+model.h5
+static/uploads/*
+
+__pycache__/
+*.pyc
+
+.vscode/
+.idea/
+
+chat_history.db
+chat_history.db-journal
